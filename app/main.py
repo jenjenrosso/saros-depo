@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Response
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
@@ -205,9 +205,17 @@ def list_malzemeler(
     q: Optional[str] = None,
     lokasyon_id: Optional[int] = None,
     fotografsiz: Optional[bool] = False,
+    hareketler: Optional[bool] = False,
+    kullanicilar: Optional[bool] = False,
+    tip: Optional[str] = None,
     limit: int = 50,
     offset: int = 0
 ):
+    if kullanicilar:
+        return list_kullanicilar()
+    if hareketler:
+        return list_hareketler(q=q, tip=tip, limit=limit, offset=offset)
+
     with db_session() as conn:
         query = """
             SELECT m.*, l.ad as lokasyon_adi, l.kod as lokasyon_kod,
@@ -285,22 +293,38 @@ def get_malzeme_by_qr(qr_kod: str):
         }
 
 @app.post("/api/malzemeler")
-def create_malzeme(
-    ad: str = Form(...),
-    lokasyon_id: int = Form(...),
-    marka: Optional[str] = Form(None),
-    tip_aciklama: Optional[str] = Form(None),
-    miktar: float = Form(0.0),
-    birim: str = Form("adet"),
-    raf_no: Optional[str] = Form(None),
-    raf_omru: Optional[str] = Form(None),
-    yp_kodu: Optional[str] = Form(None),
-    teslim_alan: Optional[str] = Form(None),
-    teslim_eden: Optional[str] = Form(None),
-    sebep: Optional[str] = Form(None),
-    kullanici: Optional[str] = Form("Saha"),
-    foto: Optional[UploadFile] = File(None)
+async def create_malzeme(
+    request: Request
 ):
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        body = await request.json()
+        if "eski_sifre" in body and "yeni_sifre" in body:
+            return sifre_degistir(SifreDegistirRequest(**body))
+        if "kullanici_adi" in body and "sifre" in body:
+            return login(LoginRequest(**body))
+        raise HTTPException(status_code=400, detail="Gecersiz JSON islem formati")
+
+    # Multipart/form-data: Normal yeni malzeme kaydi
+    form = await request.form()
+    ad = form.get("ad")
+    if not ad:
+        raise HTTPException(status_code=400, detail="Malzeme adi zorunludur")
+
+    lokasyon_id = int(form.get("lokasyon_id", 0))
+    marka = form.get("marka")
+    tip_aciklama = form.get("tip_aciklama")
+    miktar = float(form.get("miktar", 0.0) or 0.0)
+    birim = form.get("birim", "adet")
+    raf_no = form.get("raf_no")
+    raf_omru = form.get("raf_omru")
+    yp_kodu = form.get("yp_kodu")
+    teslim_alan = form.get("teslim_alan")
+    teslim_eden = form.get("teslim_eden")
+    sebep = form.get("sebep")
+    kullanici = form.get("kullanici", "Saha")
+    foto = form.get("foto")
+
     with db_session() as conn:
         lok = conn.execute("SELECT * FROM lokasyonlar WHERE id = ?", (lokasyon_id,)).fetchone()
         if not lok:
@@ -322,7 +346,7 @@ def create_malzeme(
                 miktar, birim, miktar_bilinmiyor, raf_no, raf_omru, yp_kodu,
                 kaynak
             ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'manuel')
-        """, (qr_kod, lokasyon_id, ad.strip(), marka, tip_aciklama, miktar, birim, raf_no, raf_omru, yp_kodu))
+        """, (qr_kod, lokasyon_id, str(ad).strip(), marka, tip_aciklama, miktar, birim, raf_no, raf_omru, yp_kodu))
         malzeme_id = cur.lastrowid
 
         # Ilk hareket
@@ -335,8 +359,8 @@ def create_malzeme(
             """, (malzeme_id, miktar, miktar, teslim_alan, teslim_eden, sebep or "Yeni Malzeme Kaydı", kullanici or "Sistem (Yeni Kayıt)"))
 
     # Foto yukleme
-    if foto and foto.filename:
-        content = foto.file.read()
+    if foto and hasattr(foto, "filename") and foto.filename:
+        content = await foto.read()
         if len(content) > 0:
             save_material_photo(malzeme_id, content, foto.filename)
 

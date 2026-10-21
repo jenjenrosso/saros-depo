@@ -74,7 +74,7 @@ async function submitLogin() {
   }
 
   try {
-    const res = await fetch("/api/oturum", {
+    const res = await fetch("/api/malzemeler", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -87,7 +87,7 @@ async function submitLogin() {
     if (!contentType.includes("application/json")) {
       const rawText = await res.text();
       console.error("Non-JSON API response:", rawText);
-      throw new Error(`Giriş API hatası (${res.status}). Lütfen sayfayı yenileyiniz veya yerel adresi (http://localhost:8000) deneyiniz.`);
+      throw new Error(`Giriş API hatası (${res.status}). Lütfen sayfayı yenileyiniz.`);
     }
 
     const data = await res.json();
@@ -146,7 +146,7 @@ async function submitPasswordChange() {
   }
 
   try {
-    const res = await fetch("/api/sifre", {
+    const res = await fetch("/api/malzemeler", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -912,11 +912,12 @@ async function loadAllMovements() {
 
   try {
     const params = new URLSearchParams();
+    params.set("hareketler", "true");
     if (q) params.set("q", q);
     if (movementFilterType) params.set("tip", movementFilterType);
     params.set("limit", "100");
 
-    const res = await fetch(`/api/hareketler?${params.toString()}`);
+    const res = await fetch(`/api/malzemeler?${params.toString()}`);
     const movements = await res.json();
 
     if (!movements || movements.length === 0) {
