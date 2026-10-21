@@ -5,6 +5,159 @@ let currentMaterial = null;
 let locations = [];
 let audioContext = null;
 let isTorchOn = false;
+let currentUser = null;
+
+// ---- KULLANICI GIRIS & OTURUM YONETIMI ----
+function initAuth() {
+  const saved = localStorage.getItem("saros_user");
+  if (saved) {
+    try {
+      currentUser = JSON.parse(saved);
+      updateUserUI();
+    } catch (e) {
+      localStorage.removeItem("saros_user");
+      showLoginOverlay();
+    }
+  } else {
+    showLoginOverlay();
+  }
+}
+
+function showLoginOverlay() {
+  const overlay = document.getElementById("login-overlay");
+  if (overlay) overlay.style.display = "flex";
+  const errEl = document.getElementById("login-error-msg");
+  if (errEl) errEl.style.display = "none";
+  const pwdInp = document.getElementById("login-password-input");
+  if (pwdInp) pwdInp.value = "";
+}
+
+function hideLoginOverlay() {
+  const overlay = document.getElementById("login-overlay");
+  if (overlay) overlay.style.display = "none";
+}
+
+function updateUserUI() {
+  const userBtn = document.getElementById("header-user-btn");
+  const userNameEl = document.getElementById("header-user-name");
+  const logoutBtn = document.getElementById("btn-header-logout");
+
+  if (currentUser) {
+    if (userBtn) userBtn.style.display = "flex";
+    if (userNameEl) userNameEl.textContent = currentUser.kullanici_adi || currentUser.ad_soyad;
+    if (logoutBtn) logoutBtn.style.display = "flex";
+    hideLoginOverlay();
+  } else {
+    if (userBtn) userBtn.style.display = "none";
+    if (logoutBtn) logoutBtn.style.display = "none";
+  }
+}
+
+function onLoginUserSelect(selectEl) {
+  const val = selectEl.value;
+  const inp = document.getElementById("login-username-input");
+  if (val) {
+    inp.value = val;
+    document.getElementById("login-password-input").focus();
+  }
+}
+
+async function submitLogin() {
+  const userInp = document.getElementById("login-username-input").value.trim() || document.getElementById("login-user-select").value.trim();
+  const pwdInp = document.getElementById("login-password-input").value.trim();
+  const errEl = document.getElementById("login-error-msg");
+
+  if (!userInp || !pwdInp) {
+    errEl.textContent = "Lütfen kullanıcı adı ve şifrenizi giriniz.";
+    errEl.style.display = "block";
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kullanici_adi: userInp,
+        sifre: pwdInp
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || "Giriş başarısız.");
+    }
+
+    currentUser = data.kullanici;
+    localStorage.setItem("saros_user", JSON.stringify(currentUser));
+    updateUserUI();
+    showToast(`Hoş geldiniz, ${currentUser.ad_soyad}`);
+  } catch (err) {
+    errEl.textContent = err.message || "Giriş başarısız!";
+    errEl.style.display = "block";
+  }
+}
+
+function logout() {
+  localStorage.removeItem("saros_user");
+  currentUser = null;
+  updateUserUI();
+  closeProfileModal();
+  showLoginOverlay();
+  showToast("Oturum kapatıldı.");
+}
+
+function openProfileModal() {
+  if (!currentUser) return;
+  const modal = document.getElementById("profile-modal");
+  document.getElementById("profile-user-display").textContent = `${currentUser.ad_soyad} (${currentUser.kullanici_adi})`;
+  document.getElementById("change-old-pwd").value = "";
+  document.getElementById("change-new-pwd").value = "";
+  document.getElementById("change-new-pwd-confirm").value = "";
+  modal.style.display = "flex";
+}
+
+function closeProfileModal() {
+  const modal = document.getElementById("profile-modal");
+  if (modal) modal.style.display = "none";
+}
+
+async function submitPasswordChange() {
+  if (!currentUser) return;
+  const oldPwd = document.getElementById("change-old-pwd").value;
+  const newPwd = document.getElementById("change-new-pwd").value;
+  const confirmPwd = document.getElementById("change-new-pwd-confirm").value;
+
+  if (newPwd !== confirmPwd) {
+    showToast("Yeni şifreler birbiriyle uyuşmuyor!", true);
+    return;
+  }
+
+  if (newPwd.length < 3) {
+    showToast("Yeni şifre en az 3 karakter olmalıdır!", true);
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/auth/sifre-degistir", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kullanici_adi: currentUser.kullanici_adi,
+        eski_sifre: oldPwd,
+        yeni_sifre: newPwd
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || "Şifre değiştirilemedi");
+    }
+
+    showToast("✓ Şifreniz başarıyla değiştirildi!");
+    closeProfileModal();
+  } catch (err) {
+    showToast(err.message || "Hata oluştu", true);
+  }
+}
 
 // Sesli geri bildirim (bip)
 function playBeep() {
@@ -45,6 +198,7 @@ function switchView(viewName) {
 
   if (viewName === "dashboard") loadStats();
   if (viewName === "materials") loadMaterials();
+  if (viewName === "movements") loadAllMovements();
 }
 
 // Stats Yukle
@@ -420,7 +574,7 @@ function renderMovementHistory(moves) {
       <div>
         <span style="font-weight:700;color:${isGiris ? '#16a34a' : '#dc2626'}">${isGiris ? '+ Giriş' : '- Çıkış'}: ${mv.miktar}</span>
         <span style="color:#64748b;margin-left:6px;">(${mv.sebep || 'Sebep yok'})</span>
-        <div style="font-size:0.72rem;color:#94a3b8;">${mv.tarih ? mv.tarih.substring(0, 16) : ''} | Alan: ${mv.teslim_alan || '-'}</div>
+        <div style="font-size:0.72rem;color:#94a3b8;">${mv.tarih ? mv.tarih.substring(0, 16) : ''} | Yapan: <strong>${mv.kullanici || 'Saha'}</strong></div>
       </div>
       <div style="font-weight:700;color:#334155;">Son: ${mv.sonraki_miktar}</div>
     `;
@@ -449,6 +603,7 @@ async function submitStockChange(actionType) {
   const teslim_alan = document.getElementById("stock-teslim-alan").value.trim();
   const teslim_eden = document.getElementById("stock-teslim-eden").value.trim();
   const sebep = document.getElementById("stock-sebep").value.trim();
+  const kullaniciStr = currentUser ? `${currentUser.ad_soyad} (${currentUser.kullanici_adi})` : "Saha";
 
   try {
     const res = await fetch(`/api/malzemeler/${currentMaterial.id}/hareket`, {
@@ -460,7 +615,7 @@ async function submitStockChange(actionType) {
         teslim_alan: teslim_alan,
         teslim_eden: teslim_eden,
         sebep: sebep,
-        kullanici: "Saha"
+        kullanici: kullaniciStr
       })
     });
 
@@ -685,6 +840,11 @@ async function submitNewMaterial() {
     return;
   }
 
+  // Aktif kullaniciyi ekle
+  if (currentUser) {
+    formData.append("kullanici", `${currentUser.ad_soyad} (${currentUser.kullanici_adi})`);
+  }
+
   // Kamera ile cekilen fotografi ekle
   if (newMaterialPhotoBlob) {
     formData.append("foto", newMaterialPhotoBlob, "new_mat.jpg");
@@ -719,6 +879,114 @@ async function submitNewMaterial() {
   }
 }
 
+// --- MALZEME HAREKETLERI (LOG VIEW) ---
+let movementFilterType = "";
+let movementSearchDebounce = null;
+
+function setMovementFilter(type, btn) {
+  movementFilterType = type;
+  document.querySelectorAll("#view-movements .chip").forEach(c => c.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+  loadAllMovements();
+}
+
+function onMovementSearchInput() {
+  clearTimeout(movementSearchDebounce);
+  movementSearchDebounce = setTimeout(loadAllMovements, 300);
+}
+
+async function loadAllMovements() {
+  const q = document.getElementById("movement-search-input") ? document.getElementById("movement-search-input").value.trim() : "";
+  const listEl = document.getElementById("movements-list");
+  if (!listEl) return;
+
+  listEl.innerHTML = '<div style="text-align:center;padding:30px;color:#94a3b8;">Hareketler yükleniyor...</div>';
+
+  try {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (movementFilterType) params.set("tip", movementFilterType);
+    params.set("limit", "100");
+
+    const res = await fetch(`/api/hareketler?${params.toString()}`);
+    const movements = await res.json();
+
+    if (!movements || movements.length === 0) {
+      listEl.innerHTML = '<div style="text-align:center;padding:30px;color:#94a3b8;">Kayıtlı malzeme hareketi bulunamadı.</div>';
+      return;
+    }
+
+    listEl.innerHTML = "";
+    movements.forEach(mv => {
+      const isGiris = mv.tip === "GIRIS";
+      const card = document.createElement("div");
+      card.className = `movement-card ${isGiris ? 'giris' : 'cikis'}`;
+      
+      let dateStr = mv.tarih || "";
+      if (dateStr.length >= 16) {
+        const parts = dateStr.substring(0, 16).split(" ");
+        if (parts.length === 2) {
+          const dParts = parts[0].split("-");
+          if (dParts.length === 3) {
+            dateStr = `${dParts[2]}.${dParts[1]}.${dParts[0]} ${parts[1]}`;
+          }
+        }
+      }
+
+      card.innerHTML = `
+        <div class="move-header">
+          <div>
+            <div class="move-title">${mv.malzeme_adi}</div>
+            <div style="font-family:monospace;font-size:0.75rem;color:#2563eb;font-weight:600;margin-top:2px;">
+              ${mv.qr_kod} • ${mv.lokasyon_adi || '-'} ${mv.raf_no ? '• Raf: ' + mv.raf_no : ''}
+            </div>
+          </div>
+          <span class="move-badge ${isGiris ? 'giris' : 'cikis'}">
+            ${isGiris ? '🟢 GİRİŞ' : '🔴 ÇIKIŞ'}
+          </span>
+        </div>
+
+        <div class="move-stats">
+          <div>
+            <span class="move-qty ${isGiris ? 'giris' : 'cikis'}">${isGiris ? '+' : '-'}${mv.miktar} ${mv.birim || 'adet'}</span>
+            <span style="font-size:0.75rem;color:#64748b;margin-left:6px;">(${mv.onceki_miktar} → ${mv.sonraki_miktar})</span>
+          </div>
+          <button class="btn btn-outline btn-sm" style="padding:3px 8px;font-size:0.75rem;" onclick="fetchMaterialAndOpenStock('${mv.qr_kod}')">
+            📦 Malzemeye Git
+          </button>
+        </div>
+
+        <div class="move-meta" style="margin-top:8px;">
+          <div class="move-user">
+            <span>👤</span> <span>${mv.kullanici || 'Saha'}</span>
+          </div>
+          <div style="color:#64748b;">
+            <span>📅</span> ${dateStr}
+          </div>
+        </div>
+
+        ${(mv.teslim_alan || mv.teslim_eden) ? `
+          <div style="font-size:0.74rem;color:#64748b;margin-top:4px;">
+            ${mv.teslim_alan ? `<strong>Alan:</strong> ${mv.teslim_alan}` : ''}
+            ${mv.teslim_alan && mv.teslim_eden ? ' | ' : ''}
+            ${mv.teslim_eden ? `<strong>Eden:</strong> ${mv.teslim_eden}` : ''}
+          </div>
+        ` : ''}
+
+        ${mv.sebep ? `
+          <div class="move-reason">
+            💬 <strong>Sebep:</strong> ${mv.sebep}
+          </div>
+        ` : ''}
+      `;
+      listEl.appendChild(card);
+    });
+  } catch (err) {
+    console.error("Movements error:", err);
+    listEl.innerHTML = '<div style="text-align:center;padding:20px;color:#dc2626;">Hareketler yüklenirken hata oluştu!</div>';
+  }
+}
+
 // --- ETIKET YAZDIR ---
 function downloadPdfLabels() {
   const locId = document.getElementById("print-location").value;
@@ -729,6 +997,7 @@ function downloadPdfLabels() {
 
 // Baslangic
 window.addEventListener("DOMContentLoaded", () => {
+  initAuth();
   loadLocations();
   loadStats();
 

@@ -131,5 +131,78 @@ class TestDepoSystem(unittest.TestCase):
         self.assertTrue(len(res_backup.content) > 10000)
         print(f"[TEST] Sistem ve Fotograf ZIP Yedegi OK, Boyut: {len(res_backup.content)} bytes")
 
+    def test_08_auth_login(self):
+        # 1. Dogru giris
+        res = self.client.post("/api/auth/login", json={
+            "kullanici_adi": "MSK",
+            "sifre": "123"
+        })
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(data["kullanici"]["kullanici_adi"], "MSK")
+        self.assertEqual(data["kullanici"]["ad_soyad"], "Mehmet Sait KARAOĞLU")
+        print("[TEST] Login Dogru Kullanici OK:", data["kullanici"])
+
+        # 2. Kucuk harf ile giris ("msk")
+        res_lower = self.client.post("/api/auth/login", json={
+            "kullanici_adi": "msk",
+            "sifre": "123"
+        })
+        self.assertEqual(res_lower.status_code, 200)
+
+        # 3. Yanlis sifre
+        res_wrong = self.client.post("/api/auth/login", json={
+            "kullanici_adi": "MSK",
+            "sifre": "yanlis_sifre"
+        })
+        self.assertEqual(res_wrong.status_code, 401)
+        print("[TEST] Login Hatali Sifre Reddi OK (401)")
+
+    def test_09_auth_sifre_degistir(self):
+        # 1. Sifre degistir (123 -> 999)
+        res_change = self.client.post("/api/auth/sifre-degistir", json={
+            "kullanici_adi": "GT",
+            "eski_sifre": "123",
+            "yeni_sifre": "999"
+        })
+        self.assertEqual(res_change.status_code, 200)
+
+        # 2. Yeni sifre ile giris yap
+        res_new_login = self.client.post("/api/auth/login", json={
+            "kullanici_adi": "GT",
+            "sifre": "999"
+        })
+        self.assertEqual(res_new_login.status_code, 200)
+
+        # 3. Eski sifreyle giris denemesi reddedilmeli
+        res_old_login = self.client.post("/api/auth/login", json={
+            "kullanici_adi": "GT",
+            "sifre": "123"
+        })
+        self.assertEqual(res_old_login.status_code, 401)
+
+        # 4. Sifreyi tekrar 123'e geri dondur
+        res_revert = self.client.post("/api/auth/sifre-degistir", json={
+            "kullanici_adi": "GT",
+            "eski_sifre": "999",
+            "yeni_sifre": "123"
+        })
+        self.assertEqual(res_revert.status_code, 200)
+        print("[TEST] Sifre Degistirme ve Dogrulama OK")
+
+    def test_10_hareketler_log(self):
+        # Hareket listesini cek
+        res = self.client.get("/api/hareketler?limit=20")
+        self.assertEqual(res.status_code, 200)
+        rows = res.json()
+        self.assertIsInstance(rows, list)
+        self.assertTrue(len(rows) > 0)
+        first = rows[0]
+        self.assertIn("malzeme_adi", first)
+        self.assertIn("kullanici", first)
+        self.assertIn("tip", first)
+        print(f"[TEST] Hareketler Log OK: Toplam {len(rows)} hareket getirildi. Son: {first['malzeme_adi']} ({first['tip']})")
+
 if __name__ == "__main__":
     unittest.main()

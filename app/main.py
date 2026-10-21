@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 from typing import Optional, List
 
-from app.database import db_session, init_db
+from app.database import db_session, init_db, hash_password
 from app.photo_service import save_material_photo, delete_material_photo, UPLOAD_DIR
 from app.qr_service import generate_qr_image, generate_label_pdf
 from app.excel_export import export_db_to_excel
@@ -56,7 +56,110 @@ class StokHareketiGiris(BaseModel):
     sebep: Optional[str] = None
     kullanici: Optional[str] = "Saha"
 
+class LoginRequest(BaseModel):
+    kullanici_adi: str
+    sifre: str
+
+class SifreDegistirRequest(BaseModel):
+    kullanici_adi: str
+    eski_sifre: str
+    yeni_sifre: str
+
 # ---- API ENDPOINT'LERI ----
+
+@app.post("/api/auth/login")
+def login(req: LoginRequest):
+    code = req.kullanici_adi.strip()
+    norm_code = code.replace("i", "İ").replace("ı", "I").upper()
+    with db_session() as conn:
+        user = conn.execute("""
+            SELECT id, kullanici_adi, ad_soyad, sifre_hash, aktif
+            FROM kullanicilar
+            WHERE kullanici_adi = ? OR kullanici_adi = ? OR UPPER(kullanici_adi) = ?
+        """, (code, norm_code, code.upper())).fetchone()
+
+        if not user or not user["aktif"]:
+            raise HTTPException(status_code=401, detail="Kullanıcı adı veya şifre hatalı!")
+
+        entered_hash = hash_password(req.sifre)
+        if entered_hash != user["sifre_hash"]:
+            raise HTTPException(status_code=401, detail="Kullanıcı adı veya şifre hatalı!")
+
+        return {
+            "status": "ok",
+            "kullanici": {
+                "id": user["id"],
+                "kullanici_adi": user["kullanici_adi"],
+                "ad_soyad": user["ad_soyad"]
+            }
+        }
+
+@app.post("/api/auth/sifre-degistir")
+def sifre_degistir(req: SifreDegistirRequest):
+    code = req.kullanici_adi.strip()
+    norm_code = code.replace("i", "İ").replace("ı", "I").upper()
+    if not req.yeni_sifre or len(req.yeni_sifre.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Yeni şifre en az 3 karakter olmalıdır.")
+
+    with db_session() as conn:
+        user = conn.execute("""
+            SELECT id, kullanici_adi, ad_soyad, sifre_hash
+            FROM kullanicilar
+            WHERE kullanici_adi = ? OR kullanici_adi = ? OR UPPER(kullanici_adi) = ?
+        """, (code, norm_code, code.upper())).fetchone()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı!")
+
+        if hash_password(req.eski_sifre) != user["sifre_hash"]:
+            raise HTTPException(status_code=400, detail="Mevcut şifreniz hatalı!")
+
+        new_hash = hash_password(req.yeni_sifre)
+        conn.execute("UPDATE kullanicilar SET sifre_hash = ? WHERE id = ?", (new_hash, user["id"]))
+
+        return {"status": "ok", "message": "Şifreniz başarıyla güncellendi."}
+
+@app.get("/api/auth/kullanicilar")
+def list_kullanicilar():
+    with db_session() as conn:
+        rows = conn.execute("SELECT id, kullanici_adi, ad_soyad FROM kullanicilar WHERE aktif = 1 ORDER BY id ASC").fetchall()
+        return rows
+
+@app.get("/api/hareketler")
+def list_hareketler(
+    q: Optional[str] = None,
+    tip: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    with db_session() as conn:
+        query = """
+            SELECT h.*, 
+                   m.ad as malzeme_adi, m.qr_kod, m.birim, m.marka, m.raf_no,
+                   l.ad as lokasyon_adi, l.kod as lokasyon_kod
+            FROM stok_hareketleri h
+            JOIN malzemeler m ON m.id = h.malzeme_id
+            JOIN lokasyonlar l ON l.id = m.lokasyon_id
+            WHERE 1=1
+        """
+        params = []
+        if tip and tip in ("GIRIS", "CIKIS"):
+            query += " AND h.tip = ?"
+            params.append(tip)
+
+        if q:
+            pattern = f"%{q.strip()}%"
+            query += """ AND (
+                m.ad LIKE ? OR m.qr_kod LIKE ? OR h.kullanici LIKE ? 
+                OR h.teslim_alan LIKE ? OR h.teslim_eden LIKE ? OR h.sebep LIKE ?
+            )"""
+            params.extend([pattern, pattern, pattern, pattern, pattern, pattern])
+
+        query += " ORDER BY h.id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        rows = conn.execute(query, params).fetchall()
+        return rows
 
 @app.get("/api/stats")
 def get_stats():
@@ -192,6 +295,7 @@ def create_malzeme(
     teslim_alan: Optional[str] = Form(None),
     teslim_eden: Optional[str] = Form(None),
     sebep: Optional[str] = Form(None),
+    kullanici: Optional[str] = Form("Saha"),
     foto: Optional[UploadFile] = File(None)
 ):
     with db_session() as conn:
@@ -224,8 +328,8 @@ def create_malzeme(
                 INSERT INTO stok_hareketleri (
                     malzeme_id, tip, miktar, onceki_miktar, sonraki_miktar,
                     teslim_alan, teslim_eden, sebep, kullanici
-                ) VALUES (?, 'GIRIS', ?, 0, ?, ?, ?, ?, 'Sistem (Yeni Kayit)')
-            """, (malzeme_id, miktar, miktar, teslim_alan, teslim_eden, sebep or "Yeni Malzeme Kaydi"))
+                ) VALUES (?, 'GIRIS', ?, 0, ?, ?, ?, ?, ?)
+            """, (malzeme_id, miktar, miktar, teslim_alan, teslim_eden, sebep or "Yeni Malzeme Kaydı", kullanici or "Sistem (Yeni Kayıt)"))
 
     # Foto yukleme
     if foto and foto.filename:

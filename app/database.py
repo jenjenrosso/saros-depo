@@ -1,8 +1,25 @@
 import sqlite3
 import os
+import hashlib
 from contextlib import contextmanager
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "saros_depo.db")
+
+DEFAULT_USERS = [
+    ("SEG", "Serkan Erçin GÜLTEKİN"),
+    ("MSK", "Mehmet Sait KARAOĞLU"),
+    ("MY", "Muhammet YEŞİLKAYA"),
+    ("SK", "Serdar KOÇ"),
+    ("SAK", "Şahin AK"),
+    ("İD", "İbrahim DÖNMEZ"),
+    ("MD", "Mustafa DURAN"),
+    ("AB", "Ali BALIM"),
+    ("FK", "Furkan KOCA"),
+    ("GT", "Gülcan TAŞ"),
+]
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.strip().encode("utf-8")).hexdigest()
 
 def dict_factory(cursor, row):
     return {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
@@ -87,11 +104,31 @@ def init_db():
             FOREIGN KEY (malzeme_id) REFERENCES malzemeler(id)
         );
 
+        CREATE TABLE IF NOT EXISTS kullanicilar (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kullanici_adi TEXT UNIQUE NOT NULL,
+            ad_soyad TEXT NOT NULL,
+            sifre_hash TEXT NOT NULL,
+            aktif INTEGER DEFAULT 1,
+            olusturma_tarihi TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE INDEX IF NOT EXISTS idx_malzemeler_qr ON malzemeler(qr_kod);
         CREATE INDEX IF NOT EXISTS idx_malzemeler_lokasyon ON malzemeler(lokasyon_id);
         CREATE INDEX IF NOT EXISTS idx_hareketler_malzeme ON stok_hareketleri(malzeme_id);
         CREATE INDEX IF NOT EXISTS idx_fotograflar_malzeme ON fotograflar(malzeme_id);
+        CREATE INDEX IF NOT EXISTS idx_kullanicilar_kod ON kullanicilar(kullanici_adi);
         """)
+
+        # Standart kullanicilari ekle (sifre: 123)
+        default_pwd_hash = hash_password("123")
+        for kod, isim in DEFAULT_USERS:
+            # Hem Turkce karakterli hem buyuk/kucuk harf destegi icin
+            conn.execute("""
+                INSERT INTO kullanicilar (kullanici_adi, ad_soyad, sifre_hash)
+                VALUES (?, ?, ?)
+                ON CONFLICT(kullanici_adi) DO NOTHING
+            """, (kod.upper(), isim, default_pwd_hash))
 
 if __name__ == "__main__":
     init_db()

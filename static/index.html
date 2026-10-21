@@ -18,7 +18,14 @@
     <div class="app-title" onclick="switchView('dashboard')" style="cursor:pointer;">
       <span>⚡</span> Saros Depo
     </div>
-    <span class="badge" id="header-status">Mobil Saha</span>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div id="header-user-btn" onclick="openProfileModal()" class="user-pill" style="display:none;cursor:pointer;" title="Kullanıcı Bilgileri / Şifre Değiştir">
+        <span>👤</span>
+        <span id="header-user-name">Kullanıcı</span>
+      </div>
+      <button id="btn-header-logout" onclick="logout()" class="btn-logout" title="Çıkış Yap" style="display:none;">⏻</button>
+      <span class="badge" id="header-status">Mobil Saha</span>
+    </div>
   </header>
 
   <!-- CONTAINER -->
@@ -83,6 +90,18 @@
           <div>
             <div class="nav-card-title">QR Etiketleri Yazdır (PDF)</div>
             <div class="nav-card-desc">Raflar ve kutular için A4 hazır barkod etiketleri</div>
+          </div>
+        </div>
+        <span style="color:#94a3b8;font-size:1.2rem;">›</span>
+      </div>
+
+      <!-- MALZEME HAREKETLERI (Excel Indir'in tam ustunde) -->
+      <div class="nav-card" onclick="switchView('movements')">
+        <div class="nav-card-left">
+          <div class="nav-card-icon" style="background:#e0f2fe;color:#0284c7;">📋</div>
+          <div>
+            <div class="nav-card-title">Malzeme Hareketleri</div>
+            <div class="nav-card-desc">Giriş / Çıkış işlem geçmişi ve kimin yaptığı</div>
           </div>
         </div>
         <span style="color:#94a3b8;font-size:1.2rem;">›</span>
@@ -325,6 +344,27 @@
       </div>
     </div>
 
+    <!-- 6. MALZEME HAREKETLERI LOG VIEW -->
+    <div id="view-movements" class="view">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <button class="btn btn-outline btn-sm" onclick="switchView('dashboard')">‹ Ana Sayfa</button>
+        <h3 style="font-size:1rem;font-weight:700;">📋 Malzeme Hareketleri</h3>
+        <button class="btn btn-outline btn-sm" onclick="loadAllMovements()" title="Yenile">🔄</button>
+      </div>
+
+      <div class="form-group">
+        <input type="text" id="movement-search-input" class="form-input" placeholder="🔍 Malzeme, kod, kişi veya sebep ara..." oninput="onMovementSearchInput()">
+      </div>
+
+      <div class="filter-bar">
+        <button id="btn-move-filter-all" class="chip active" onclick="setMovementFilter('', this)">Tümü</button>
+        <button id="btn-move-filter-giris" class="chip" onclick="setMovementFilter('GIRIS', this)">🟢 Sadece Girişler</button>
+        <button id="btn-move-filter-cikis" class="chip" onclick="setMovementFilter('CIKIS', this)">🔴 Sadece Çıkışlar</button>
+      </div>
+
+      <div id="movements-list"></div>
+    </div>
+
   </div> <!-- /container -->
 
   <!-- CANLI KAMERA QR TARAYICI OVERLAY -->
@@ -477,6 +517,102 @@
           </button>
           <button type="button" class="btn btn-success" onclick="confirmSnapshot()">
             ✓ Bu Fotoğrafı Kullan
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- KULLANICI GIRIS EKRANI (LOGIN OVERLAY) -->
+  <div id="login-overlay" class="login-overlay" style="display:none;">
+    <div class="login-card">
+      <div style="text-align:center;margin-bottom:20px;">
+        <div style="font-size:2.4rem;margin-bottom:6px;">⚡</div>
+        <h2 style="font-size:1.35rem;font-weight:800;color:#1e293b;">Saros Depo</h2>
+        <p style="font-size:0.82rem;color:#64748b;margin-top:4px;">Lütfen kullanıcı adınızı ve şifrenizi giriniz</p>
+      </div>
+
+      <form id="login-form" onsubmit="event.preventDefault(); submitLogin();">
+        <div class="form-group">
+          <label class="form-label">Kullanıcı Seçiniz</label>
+          <select id="login-user-select" class="form-select" onchange="onLoginUserSelect(this)">
+            <option value="">-- Listeden Seçiniz --</option>
+            <option value="SEG">SEG - Serkan Erçin GÜLTEKİN</option>
+            <option value="MSK">MSK - Mehmet Sait KARAOĞLU</option>
+            <option value="MY">MY - Muhammet YEŞİLKAYA</option>
+            <option value="SK">SK - Serdar KOÇ</option>
+            <option value="SAK">SAK - Şahin AK</option>
+            <option value="İD">İD - İbrahim DÖNMEZ</option>
+            <option value="MD">MD - Mustafa DURAN</option>
+            <option value="AB">AB - Ali BALIM</option>
+            <option value="FK">FK - Furkan KOCA</option>
+            <option value="GT">GT - Gülcan TAŞ</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">veya Kullanıcı Kodu</label>
+          <input type="text" id="login-username-input" class="form-input" placeholder="Örn: MSK, SEG, MY..." style="text-transform:uppercase;">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Şifre</label>
+          <input type="password" id="login-password-input" class="form-input" placeholder="Varsayılan: 123" required>
+        </div>
+
+        <div id="login-error-msg" style="display:none;color:#dc2626;font-size:0.82rem;font-weight:600;margin-bottom:12px;text-align:center;"></div>
+
+        <button type="submit" class="btn btn-primary" style="padding:14px;font-size:1rem;font-weight:700;margin-top:6px;">
+          GİRİŞ YAP
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- KULLANICI BILGILERI & SIFRE DEGISTIRME MODALI -->
+  <div id="profile-modal" class="overlay" style="background:rgba(0,0,0,0.7);justify-content:center;align-items:center;padding:14px;">
+    <div style="background:white;width:100%;max-width:440px;border-radius:18px;overflow:hidden;box-shadow:0 20px 25px -5px rgba(0,0,0,0.4);">
+      
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e2e8f0;">
+        <h3 style="font-size:1.1rem;font-weight:700;display:flex;align-items:center;gap:6px;">
+          <span>👤</span> Kullanıcı Bilgileri
+        </h3>
+        <button onclick="closeProfileModal()" style="border:none;background:none;font-size:1.3rem;cursor:pointer;color:#64748b;">✕</button>
+      </div>
+
+      <div style="padding:20px;">
+        <div style="background:#f8fafc;padding:12px;border-radius:12px;margin-bottom:16px;border:1px solid #e2e8f0;">
+          <div style="font-size:0.75rem;color:#64748b;">Giriş Yapmış Kullanıcı</div>
+          <div id="profile-user-display" style="font-size:1rem;font-weight:700;color:#1e293b;margin-top:2px;">-</div>
+        </div>
+
+        <h4 style="font-size:0.92rem;font-weight:700;margin-bottom:10px;color:#334155;">🔒 Şifremi Değiştir</h4>
+
+        <form id="password-change-form" onsubmit="event.preventDefault(); submitPasswordChange();">
+          <div class="form-group">
+            <label class="form-label">Mevcut Şifre</label>
+            <input type="password" id="change-old-pwd" class="form-input" required placeholder="Mevcut şifreniz">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Yeni Şifre</label>
+            <input type="password" id="change-new-pwd" class="form-input" required placeholder="Yeni şifreniz (en az 3 karakter)">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Yeni Şifre (Tekrar)</label>
+            <input type="password" id="change-new-pwd-confirm" class="form-input" required placeholder="Yeni şifrenizi tekrar yazın">
+          </div>
+
+          <button type="submit" class="btn btn-primary" style="padding:12px;font-size:0.95rem;margin-top:6px;">
+            ŞİFREYİ GÜNCELLE
+          </button>
+        </form>
+
+        <div style="border-top:1px solid #e2e8f0;margin-top:16px;padding-top:14px;text-align:center;">
+          <button type="button" class="btn btn-outline btn-sm" style="color:#dc2626;border-color:#fca5a5;" onclick="logout()">
+            ⏻ Oturumu Kapat (Çıkış Yap)
           </button>
         </div>
       </div>
