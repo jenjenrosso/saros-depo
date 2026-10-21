@@ -55,12 +55,45 @@ def truncate_text(canvas_obj, text: str, font_name: str, font_size: float, max_w
         text = text[:-1]
     return text + "..."
 
+def wrap_text(canvas_obj, text: str, font_name: str, font_size: float, max_width: float, max_lines: int = 2) -> list:
+    """
+    Ekipman adinin kesilmemesi icin kelime bazli satir bolme yapar (2 satira kadar).
+    """
+    if not text:
+        return []
+    words = text.split()
+    lines = []
+    current_line = []
+
+    for word in words:
+        test_line = " ".join(current_line + [word])
+        if canvas_obj.stringWidth(test_line, font_name, font_size) <= max_width:
+            current_line.append(word)
+        else:
+            if current_line:
+                lines.append(" ".join(current_line))
+                current_line = [word]
+            else:
+                lines.append(truncate_text(canvas_obj, word, font_name, font_size, max_width))
+                current_line = []
+            if len(lines) >= max_lines:
+                break
+
+    if current_line and len(lines) < max_lines:
+        lines.append(" ".join(current_line))
+    elif current_line and len(lines) == max_lines:
+        last = lines[-1] + " " + " ".join(current_line)
+        lines[-1] = truncate_text(canvas_obj, last, font_name, font_size, max_width)
+
+    return lines
+
 def generate_label_pdf(items: list) -> bytes:
     """
     Malzeme listesini A4 sayfasina 3 sutun x 8 satir (24 etiket/sayfa) etiket seklinde dizer.
-    Mevcut yerlerinde %10 kucultulmus (daha guvenli etiket payi ile) olarak cizer.
-    Her etikette: QR kod, Malzeme Adi, Lokasyon, Raf No, QR Kodu metni yer alir.
-    Turkce karakterleri eksiksiz basar (ı, İ, ş, Ş, ğ, Ğ, ç, Ç, ö, Ö, ü, Ü).
+    - Dikdortgen sinir cizgileri kaldirildi (baskida temiz gorunum).
+    - Ekipman adlari kesilmeden tam cikar (gerektiginde 2 satira sarar).
+    - Etiketler arasi bosluk %5 azaltilarak icerik genisletildi.
+    - Turkce karakterleri eksiksiz basar (ı, İ, ş, Ş, ğ, Ğ, ç, Ç, ö, Ö, ü, Ü).
     """
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
@@ -68,13 +101,13 @@ def generate_label_pdf(items: list) -> bytes:
 
     cols = 3
     rows = 8
-    margin_x = 20
-    margin_y = 25
+    margin_x = 18
+    margin_y = 22
     slot_w = (width - 2 * margin_x) / cols
     slot_h = (height - 2 * margin_y) / rows
 
-    # %10 Kucultme olcegi: etiket kutusu ve icerigi yuvasinda %10 daha kompakt (scale = 0.90)
-    scale = 0.90
+    # Etiketler arasi bosluk %5 azaltildi (scale 0.90 yerine 0.95)
+    scale = 0.95
     box_w = slot_w * scale
     box_h = slot_h * scale
     pad_x = (slot_w - box_w) / 2.0
@@ -91,59 +124,66 @@ def generate_label_pdf(items: list) -> bytes:
         slot_x = margin_x + c_idx * slot_w
         slot_y = height - margin_y - (r_idx + 1) * slot_h
 
-        # Mevcut yerinde %10 kucultulmus ve ortalanmis etiket koordinatlari
         box_x = slot_x + pad_x
         box_y = slot_y + pad_y
 
-        # Etiket cercevesi
-        c.setStrokeColor(colors.HexColor("#CBD5E1"))
-        c.setLineWidth(0.5)
-        c.roundRect(box_x, box_y, box_w, box_h, 3.5, stroke=1, fill=0)
+        # NOT: Kullanici talebiyle dikdortgen cerceve cizgisi kaldirildi (temiz yapiskanli etiket baskisi)
 
         # QR Kod uret
         qr_bytes = generate_qr_image(item.get("qr_kod", ""), box_size=4, border=1)
         qr_img = io.BytesIO(qr_bytes)
         img_reader = ImageReader(qr_img)
 
-        # QR Ciz (sol taraf - orantili kucultuldu)
-        qr_size = box_h - 12
-        qr_x = box_x + 6
-        qr_y = box_y + 6
+        # QR Ciz (sol taraf)
+        qr_size = box_h - 10
+        qr_x = box_x + 3
+        qr_y = box_y + 5
         c.drawImage(img_reader, qr_x, qr_y, width=qr_size, height=qr_size)
 
         # Bilgi Metinleri (sag taraf)
-        text_x = qr_x + qr_size + 8
-        max_text_w = box_w - qr_size - 14
-        
-        # Malzeme Adi (Bold - 7.5pt)
+        text_x = qr_x + qr_size + 7
+        max_text_w = box_w - qr_size - 10
+
+        # Malzeme Adi (Bold - Kesilmeden tam cikar, uzunsa 2 satira sarar)
         c.setFillColor(colors.black)
         c.setFont(FONT_BOLD_NAME, 7.5)
-        raw_ad = item.get("ad") or ""
-        ad = truncate_text(c, raw_ad, FONT_BOLD_NAME, 7.5, max_text_w)
-        c.drawString(text_x, box_y + box_h - 16, ad)
+        raw_ad = (item.get("ad") or "").strip()
+        ad_lines = wrap_text(c, raw_ad, FONT_BOLD_NAME, 7.5, max_text_w, max_lines=2)
+
+        if len(ad_lines) >= 2:
+            c.drawString(text_x, box_y + box_h - 13, ad_lines[0])
+            c.drawString(text_x, box_y + box_h - 22, ad_lines[1])
+            curr_y = box_y + box_h - 33
+        elif len(ad_lines) == 1:
+            c.drawString(text_x, box_y + box_h - 15, ad_lines[0])
+            curr_y = box_y + box_h - 28
+        else:
+            curr_y = box_y + box_h - 25
 
         # Marka (6.5pt)
         c.setFont(FONT_NAME, 6.5)
         c.setFillColor(colors.HexColor("#334155"))
         raw_marka = f"Marka: {item.get('marka') or '-'}"
         marka = truncate_text(c, raw_marka, FONT_NAME, 6.5, max_text_w)
-        c.drawString(text_x, box_y + box_h - 27, marka)
+        c.drawString(text_x, curr_y, marka)
 
         # Lokasyon (6.5pt)
+        curr_y -= 10
         lok_val = item.get("lokasyon_adi") or item.get("lokasyon_kod") or "-"
         raw_lok = f"Lok: {lok_val}"
         lok = truncate_text(c, raw_lok, FONT_NAME, 6.5, max_text_w)
-        c.drawString(text_x, box_y + box_h - 38, lok)
+        c.drawString(text_x, curr_y, lok)
 
         # Raf No (6.5pt)
+        curr_y -= 10
         raw_raf = f"Raf: {item.get('raf_no') or '-'}"
         raf = truncate_text(c, raw_raf, FONT_NAME, 6.5, max_text_w)
-        c.drawString(text_x, box_y + box_h - 49, raf)
+        c.drawString(text_x, curr_y, raf)
 
         # QR Kod Metni (Bold - 7pt)
-        c.setFont(FONT_BOLD_NAME, 7)
+        c.setFont(FONT_BOLD_NAME, 7.5)
         c.setFillColor(colors.HexColor("#1E3A8A"))
-        c.drawString(text_x, box_y + 8, item.get("qr_kod", ""))
+        c.drawString(text_x, box_y + 6, item.get("qr_kod", ""))
 
     c.save()
     return buf.getvalue()
