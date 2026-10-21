@@ -72,6 +72,8 @@ class TestDepoSystem(unittest.TestCase):
             "miktar": 3,
             "sebep": "Test Sifirlama"
         })
+        with db_session() as conn:
+            conn.execute("DELETE FROM stok_hareketleri WHERE sebep IN ('Test Girisi', 'Test Sifirlama', 'Saha Montaj')")
 
     def test_04_create_new_material(self):
         # Yeni malzeme ekle
