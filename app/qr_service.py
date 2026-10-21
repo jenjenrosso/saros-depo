@@ -7,6 +7,7 @@ from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.utils import ImageReader
 
 # Turkce karakter destekli TrueType font tanimlama
 FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
@@ -57,6 +58,7 @@ def truncate_text(canvas_obj, text: str, font_name: str, font_size: float, max_w
 def generate_label_pdf(items: list) -> bytes:
     """
     Malzeme listesini A4 sayfasina 3 sutun x 8 satir (24 etiket/sayfa) etiket seklinde dizer.
+    Mevcut yerlerinde %10 kucultulmus (daha guvenli etiket payi ile) olarak cizer.
     Her etikette: QR kod, Malzeme Adi, Lokasyon, Raf No, QR Kodu metni yer alir.
     Turkce karakterleri eksiksiz basar (ı, İ, ş, Ş, ğ, Ğ, ç, Ç, ö, Ö, ü, Ü).
     """
@@ -68,8 +70,15 @@ def generate_label_pdf(items: list) -> bytes:
     rows = 8
     margin_x = 20
     margin_y = 25
-    label_w = (width - 2 * margin_x) / cols
-    label_h = (height - 2 * margin_y) / rows
+    slot_w = (width - 2 * margin_x) / cols
+    slot_h = (height - 2 * margin_y) / rows
+
+    # %10 Kucultme olcegi: etiket kutusu ve icerigi yuvasinda %10 daha kompakt (scale = 0.90)
+    scale = 0.90
+    box_w = slot_w * scale
+    box_h = slot_h * scale
+    pad_x = (slot_w - box_w) / 2.0
+    pad_y = (slot_h - box_h) / 2.0
 
     for idx, item in enumerate(items):
         page_idx = idx % (cols * rows)
@@ -79,57 +88,62 @@ def generate_label_pdf(items: list) -> bytes:
         c_idx = page_idx % cols
         r_idx = page_idx // cols
 
-        x = margin_x + c_idx * label_w
-        y = height - margin_y - (r_idx + 1) * label_h
+        slot_x = margin_x + c_idx * slot_w
+        slot_y = height - margin_y - (r_idx + 1) * slot_h
+
+        # Mevcut yerinde %10 kucultulmus ve ortalanmis etiket koordinatlari
+        box_x = slot_x + pad_x
+        box_y = slot_y + pad_y
 
         # Etiket cercevesi
         c.setStrokeColor(colors.HexColor("#CBD5E1"))
         c.setLineWidth(0.5)
-        c.roundRect(x + 2, y + 2, label_w - 4, label_h - 4, 4, stroke=1, fill=0)
+        c.roundRect(box_x, box_y, box_w, box_h, 3.5, stroke=1, fill=0)
 
         # QR Kod uret
         qr_bytes = generate_qr_image(item.get("qr_kod", ""), box_size=4, border=1)
         qr_img = io.BytesIO(qr_bytes)
-        from reportlab.lib.utils import ImageReader
         img_reader = ImageReader(qr_img)
 
-        # QR Ciz (sol taraf)
-        qr_size = label_h - 14
-        c.drawImage(img_reader, x + 6, y + 7, width=qr_size, height=qr_size)
+        # QR Ciz (sol taraf - orantili kucultuldu)
+        qr_size = box_h - 12
+        qr_x = box_x + 6
+        qr_y = box_y + 6
+        c.drawImage(img_reader, qr_x, qr_y, width=qr_size, height=qr_size)
 
         # Bilgi Metinleri (sag taraf)
-        text_x = x + qr_size + 10
-        max_text_w = label_w - qr_size - 14
+        text_x = qr_x + qr_size + 8
+        max_text_w = box_w - qr_size - 14
         
-        # Malzeme Adi (Bold)
+        # Malzeme Adi (Bold - 7.5pt)
         c.setFillColor(colors.black)
-        c.setFont(FONT_BOLD_NAME, 8)
+        c.setFont(FONT_BOLD_NAME, 7.5)
         raw_ad = item.get("ad") or ""
-        ad = truncate_text(c, raw_ad, FONT_BOLD_NAME, 8, max_text_w)
-        c.drawString(text_x, y + label_h - 18, ad)
+        ad = truncate_text(c, raw_ad, FONT_BOLD_NAME, 7.5, max_text_w)
+        c.drawString(text_x, box_y + box_h - 16, ad)
 
-        # Marka
-        c.setFont(FONT_NAME, 7)
+        # Marka (6.5pt)
+        c.setFont(FONT_NAME, 6.5)
         c.setFillColor(colors.HexColor("#334155"))
         raw_marka = f"Marka: {item.get('marka') or '-'}"
-        marka = truncate_text(c, raw_marka, FONT_NAME, 7, max_text_w)
-        c.drawString(text_x, y + label_h - 30, marka)
+        marka = truncate_text(c, raw_marka, FONT_NAME, 6.5, max_text_w)
+        c.drawString(text_x, box_y + box_h - 27, marka)
 
-        # Lokasyon
+        # Lokasyon (6.5pt)
         lok_val = item.get("lokasyon_adi") or item.get("lokasyon_kod") or "-"
         raw_lok = f"Lok: {lok_val}"
-        lok = truncate_text(c, raw_lok, FONT_NAME, 7, max_text_w)
-        c.drawString(text_x, y + label_h - 42, lok)
+        lok = truncate_text(c, raw_lok, FONT_NAME, 6.5, max_text_w)
+        c.drawString(text_x, box_y + box_h - 38, lok)
 
-        # Raf No
+        # Raf No (6.5pt)
         raw_raf = f"Raf: {item.get('raf_no') or '-'}"
-        raf = truncate_text(c, raw_raf, FONT_NAME, 7, max_text_w)
-        c.drawString(text_x, y + label_h - 54, raf)
+        raf = truncate_text(c, raw_raf, FONT_NAME, 6.5, max_text_w)
+        c.drawString(text_x, box_y + box_h - 49, raf)
 
-        # QR Kod Metni
-        c.setFont(FONT_BOLD_NAME, 7.5)
+        # QR Kod Metni (Bold - 7pt)
+        c.setFont(FONT_BOLD_NAME, 7)
         c.setFillColor(colors.HexColor("#1E3A8A"))
-        c.drawString(text_x, y + 10, item.get("qr_kod", ""))
+        c.drawString(text_x, box_y + 8, item.get("qr_kod", ""))
 
     c.save()
     return buf.getvalue()
