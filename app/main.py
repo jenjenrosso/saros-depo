@@ -67,6 +67,7 @@ class SifreDegistirRequest(BaseModel):
 
 # ---- API ENDPOINT'LERI ----
 
+@app.post("/api/oturum")
 @app.post("/api/auth/login")
 def login(req: LoginRequest):
     code = req.kullanici_adi.strip()
@@ -94,6 +95,7 @@ def login(req: LoginRequest):
             }
         }
 
+@app.post("/api/sifre")
 @app.post("/api/auth/sifre-degistir")
 def sifre_degistir(req: SifreDegistirRequest):
     code = req.kullanici_adi.strip()
@@ -119,6 +121,7 @@ def sifre_degistir(req: SifreDegistirRequest):
 
         return {"status": "ok", "message": "Şifreniz başarıyla güncellendi."}
 
+@app.get("/api/kullanicilar")
 @app.get("/api/auth/kullanicilar")
 def list_kullanicilar():
     with db_session() as conn:

@@ -68,56 +68,65 @@ def start_multiplexer(listen_host, listen_port, http_port, https_port):
 
 if __name__ == "__main__":
     local_ip = get_local_ip()
-    public_port = 8000
-    internal_http_port = 8080
-    internal_https_port = 8443
+    port_env = os.environ.get("PORT")
 
-    # SSL sertifikalarini hazirla
-    ssl_certfile, ssl_keyfile = ensure_ssl_certs(local_ip)
+    if port_env:
+        # Render / Cloud ortami: Render SSL'i kendi reverse proxy'sinde cozer, $PORT uzerinde calisir
+        port = int(port_env)
+        print(f"[RENDER CLOUD MODU] Port {port} uzerinde baslatiliyor...")
+        uvicorn.run(app, host="0.0.0.0", port=port)
+    else:
+        # Yerel PC / Wi-Fi ortami: Akilli Dual (HTTP + HTTPS) Multiplexer
+        public_port = 8000
+        internal_http_port = 8080
+        internal_https_port = 8443
 
-    print("=" * 70)
-    print("           SAROS DEPO - AKILLI DUAL (HTTP + HTTPS) SUNUCU")
-    print("=" * 70)
-    print(f" * Bilgisayardan : http://localhost:{public_port}  veya  https://localhost:{public_port}")
-    print(f" * Telefondan    : https://{local_ip}:{public_port} (Kamera için önerilen)")
-    print(f"                   veya http://{local_ip}:{public_port}")
-    print("-" * 70)
-    print(" [ÖZELLİK: OTOMATİK PROTOKOL ALGILAMA]")
-    print(f" Port {public_port} hem düz HTTP hem de şifreli HTTPS isteklerini")
-    print(" otomatik tanır; 'Failed to fetch' veya SSL protokol hatası vermez!")
-    print("=" * 70)
+        # SSL sertifikalarini hazirla
+        ssl_certfile, ssl_keyfile = ensure_ssl_certs(local_ip)
 
-    # 1. Dahili HTTP sunucusu
-    def run_http_backend():
-        config = uvicorn.Config(
-            app,
-            host="127.0.0.1",
-            port=internal_http_port,
-            log_level="warning"
-        )
-        server = uvicorn.Server(config)
-        server.run()
+        print("=" * 70)
+        print("           SAROS DEPO - AKILLI DUAL (HTTP + HTTPS) SUNUCU")
+        print("=" * 70)
+        print(f" * Bilgisayardan : http://localhost:{public_port}  veya  https://localhost:{public_port}")
+        print(f" * Telefondan    : https://{local_ip}:{public_port} (Kamera için önerilen)")
+        print(f"                   veya http://{local_ip}:{public_port}")
+        print("-" * 70)
+        print(" [ÖZELLİK: OTOMATİK PROTOKOL ALGILAMA]")
+        print(f" Port {public_port} hem düz HTTP hem de şifreli HTTPS isteklerini")
+        print(" otomatik tanır; 'Failed to fetch' veya SSL protokol hatası vermez!")
+        print("=" * 70)
 
-    # 2. Dahili HTTPS sunucusu
-    def run_https_backend():
-        config = uvicorn.Config(
-            app,
-            host="127.0.0.1",
-            port=internal_https_port,
-            ssl_keyfile=ssl_keyfile,
-            ssl_certfile=ssl_certfile,
-            log_level="warning"
-        )
-        server = uvicorn.Server(config)
-        server.run()
+        # 1. Dahili HTTP sunucusu
+        def run_http_backend():
+            config = uvicorn.Config(
+                app,
+                host="127.0.0.1",
+                port=internal_http_port,
+                log_level="warning"
+            )
+            server = uvicorn.Server(config)
+            server.run()
 
-    t_http = threading.Thread(target=run_http_backend, daemon=True)
-    t_https = threading.Thread(target=run_https_backend, daemon=True)
-    t_http.start()
-    t_https.start()
+        # 2. Dahili HTTPS sunucusu
+        def run_https_backend():
+            config = uvicorn.Config(
+                app,
+                host="127.0.0.1",
+                port=internal_https_port,
+                ssl_keyfile=ssl_keyfile,
+                ssl_certfile=ssl_certfile,
+                log_level="warning"
+            )
+            server = uvicorn.Server(config)
+            server.run()
 
-    # Sunucularin ayaga kalkmasini bekle
-    time.sleep(0.8)
+        t_http = threading.Thread(target=run_http_backend, daemon=True)
+        t_https = threading.Thread(target=run_https_backend, daemon=True)
+        t_http.start()
+        t_https.start()
 
-    # 3. Port 8000 Multiplexer (Ana thread uzerinde calisir)
-    start_multiplexer("0.0.0.0", public_port, internal_http_port, internal_https_port)
+        # Sunucularin ayaga kalkmasini bekle
+        time.sleep(0.8)
+
+        # 3. Port 8000 Multiplexer (Ana thread uzerinde calisir)
+        start_multiplexer("0.0.0.0", public_port, internal_http_port, internal_https_port)

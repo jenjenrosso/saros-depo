@@ -74,7 +74,7 @@ async function submitLogin() {
   }
 
   try {
-    const res = await fetch("/api/auth/login", {
+    const res = await fetch("/api/oturum", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -87,10 +87,7 @@ async function submitLogin() {
     if (!contentType.includes("application/json")) {
       const rawText = await res.text();
       console.error("Non-JSON API response:", rawText);
-      if (window.location.hostname.includes("streamlit.app")) {
-        throw new Error("Streamlit Cloud FastAPI API altyapısını desteklemiyor. Lütfen http://localhost:8000 adresini kullanınız.");
-      }
-      throw new Error(`Sunucu (${res.status}) JSON yerine HTML döndürdü. Lütfen http://localhost:8000 üzerinden giriş yapınız.`);
+      throw new Error(`Giriş API hatası (${res.status}). Lütfen sayfayı yenileyiniz veya yerel adresi (http://localhost:8000) deneyiniz.`);
     }
 
     const data = await res.json();
@@ -149,7 +146,7 @@ async function submitPasswordChange() {
   }
 
   try {
-    const res = await fetch("/api/auth/sifre-degistir", {
+    const res = await fetch("/api/sifre", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
