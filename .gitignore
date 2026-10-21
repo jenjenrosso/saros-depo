@@ -1,0 +1,21 @@
+# Python derleme ve cache
+__pycache__/
+*.py[cod]
+*$py.class
+env/
+venv/
+.venv/
+
+# Yerel uretilen SSL anahtarlari (Guvenlik geregi yuklenmemeli)
+data/ssl/*.pem
+
+# Gecici test ciktilari
+test_tr.pdf
+data/test_tr.pdf
+*.pdf.tmp
+
+# IDE ve isletim sistemi dosyalari
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
