@@ -82,6 +82,17 @@ async function submitLogin() {
         sifre: pwdInp
       })
     });
+
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      const rawText = await res.text();
+      console.error("Non-JSON API response:", rawText);
+      if (window.location.hostname.includes("streamlit.app")) {
+        throw new Error("Streamlit Cloud FastAPI API altyapısını desteklemiyor. Lütfen http://localhost:8000 adresini kullanınız.");
+      }
+      throw new Error(`Sunucu (${res.status}) JSON yerine HTML döndürdü. Lütfen http://localhost:8000 üzerinden giriş yapınız.`);
+    }
+
     const data = await res.json();
     if (!res.ok) {
       throw new Error(data.detail || "Giriş başarısız.");
